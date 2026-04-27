@@ -45,7 +45,9 @@ function getColumnValue(row, possibleNames) {
 
 function normalizeRegion(str) {
     if (!str) return '';
-    return str.toString().trim().replace(/특별시|광역시|특별자치시|특별자치도|$/g, '');
+    return str.toString().trim()
+        .replace(/(특별시|광역시|특별자치시|특별자치도|시|도)$/, '')
+        .trim();
 }
 
 // Update District Select options based on City
@@ -97,14 +99,14 @@ function renderStats() {
     });
     
     let mainAge = '-';
-    let maxVal = -1;
+    let maxVal = 0;
     Object.entries(ageTotals).forEach(([age, val]) => {
         if (val > maxVal) { maxVal = val; mainAge = age; }
     });
 
     document.getElementById('stat-total-complexes').textContent = totalComplexes.toLocaleString();
     document.getElementById('stat-total-households').textContent = totalHouseholds.toLocaleString();
-    document.getElementById('stat-main-age').textContent = mainAge;
+    document.getElementById('stat-main-age').textContent = totalComplexes > 0 ? mainAge : '-';
 }
 
 // Render Chart
@@ -174,6 +176,7 @@ function renderList() {
 }
 
 // Admin Logic
+let pendingData = [];
 function handleFile(file) {
     if (!file) return;
     document.getElementById('file-name').textContent = file.name;
@@ -185,9 +188,17 @@ function handleFile(file) {
         const firstSheet = workbook.SheetNames[0];
         const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
         
+        const sampleRow = rows[0] || {};
+        const matchedCols = {
+            city: ['시도', '광역', '지역', '시/도', '주소1'].find(n => sampleRow[n] !== undefined),
+            district: ['시군구', '기초', '구군', '시/군/구', '주소2'].find(n => sampleRow[n] !== undefined),
+            name: ['단지명', '아파트명', '현장명', '단지', '아파트'].find(n => sampleRow[n] !== undefined),
+            households: ['세대수', '세대', '가구수'].find(n => sampleRow[n] !== undefined)
+        };
+
         pendingData = rows.map((row, index) => {
             const cityName = getColumnValue(row, ['시도', '광역', '지역', '시/도', '주소1', 'addr1']) || '기타';
-            const districtName = getColumnValue(row, ['시군구', '기초', '구군', '시/군/구', '주소2', 'addr2']) || '전체';
+            const districtName = getColumnValue(row, ['시군구', '기초', '구군', '시/군/구', '주소2', 'addr2']) || '';
             const aptName = getColumnValue(row, ['단지명', '아파트명', '현장명', '단지', '아파트']) || '알 수 없음';
             const householdCount = parseInt(getColumnValue(row, ['세대수', '세대', '가구수']) || 0);
             
@@ -212,6 +223,9 @@ function handleFile(file) {
                 }
             };
         });
+
+        const matchSummary = Object.entries(matchedCols).map(([k, v]) => `${k}: ${v || '❌인식실패'}`).join('\n');
+        alert(`파일 분석 완료!\n총 ${pendingData.length}개 단지가 로드되었습니다.\n\n[컬럼 인식 결과]\n${matchSummary}\n\n*인식실패 항목이 있으면 조회 시 데이터가 나오지 않을 수 있습니다.`);
 
         document.getElementById('row-count').textContent = `${pendingData.length} rows detected`;
         document.getElementById('upload-status').style.display = 'block';
@@ -252,5 +266,4 @@ districtSelect.onchange = filterAndRender;
 typeSelect.onchange = filterAndRender;
 refreshBtn.onclick = filterAndRender;
 
-let pendingData = [];
 init();
