@@ -33,23 +33,29 @@ const saveDbBtn = document.getElementById('save-db-btn');
 const refreshBtn = document.getElementById('refresh-btn');
 
 // Chart Colors
-const chartColors = [
-    '#6366f1', '#2dd4bf', '#fbbf24', '#f87171', '#a78bfa', '#94a3b8'
-];
+const chartColors = ['#6366f1', '#2dd4bf', '#fbbf24', '#f87171', '#a78bfa', '#94a3b8'];
 
-// Initialize
-function init() {
-    loadMockData();
-    updateDistricts();
-    filterAndRender();
+// Helper Functions
+function getColumnValue(row, possibleNames) {
+    for (const name of possibleNames) {
+        if (row[name] !== undefined) return row[name];
+    }
+    return null;
+}
+
+function normalizeRegion(str) {
+    if (!str) return '';
+    return str.toString().trim().replace(/특별시|광역시|특별자치시|특별자치도|$/g, '');
 }
 
 // Update District Select options based on City
 function updateDistricts() {
     const selectedCity = citySelect.value;
     const districts = [...new Set(masterDB
-        .filter(item => selectedCity === 'all' || item.city === selectedCity)
-        .map(item => item.district))].sort();
+        .filter(item => selectedCity === 'all' || item.city === selectedCity || normalizeRegion(item.city) === normalizeRegion(selectedCity))
+        .map(item => item.district))]
+        .filter(d => d && d !== '전체')
+        .sort();
 
     districtSelect.innerHTML = '<option value="all">전체</option>';
     districts.forEach(d => {
@@ -67,7 +73,7 @@ function filterAndRender() {
     const type = typeSelect.value;
 
     filteredData = masterDB.filter(item => {
-        const matchCity = city === 'all' || item.city === city;
+        const matchCity = city === 'all' || item.city === city || normalizeRegion(item.city) === normalizeRegion(city);
         const matchDistrict = district === 'all' || item.district === district;
         const matchType = type === 'all' || item.type === type;
         return matchCity && matchDistrict && matchType;
@@ -83,7 +89,6 @@ function renderStats() {
     const totalComplexes = filteredData.length;
     const totalHouseholds = filteredData.reduce((sum, item) => sum + (item.households || 0), 0);
     
-    // Calculate major age group
     const ageTotals = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대+': 0 };
     filteredData.forEach(item => {
         Object.keys(ageTotals).forEach(age => {
@@ -104,7 +109,9 @@ function renderStats() {
 
 // Render Chart
 function renderCharts() {
-    const ctx = document.getElementById('age-chart').getContext('2d');
+    const canvas = document.getElementById('age-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     
     const ageTotals = { '10대': 0, '20대': 0, '30대': 0, '40대': 0, '50대': 0, '60대+': 0 };
     filteredData.forEach(item => {
@@ -167,35 +174,6 @@ function renderList() {
 }
 
 // Admin Logic
-adminToggleBtn.onclick = () => adminView.classList.add('active');
-closeAdminBtn.onclick = () => adminView.classList.remove('active');
-
-dropZone.onclick = () => fileInput.click();
-dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
-dropZone.ondragleave = () => dropZone.classList.remove('dragover');
-dropZone.ondrop = (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    handleFile(e.dataTransfer.files[0]);
-};
-
-fileInput.onchange = (e) => handleFile(e.target.files[0]);
-
-let pendingData = [];
-// Flexible column mapping
-function getColumnValue(row, possibleNames) {
-    for (const name of possibleNames) {
-        if (row[name] !== undefined) return row[name];
-    }
-    return null;
-}
-
-// Normalize region names (e.g., "인천광역시" -> "인천")
-function normalizeRegion(str) {
-    if (!str) return '';
-    return str.toString().trim().replace(/특별시|광역시|특별자치시|특별자치도|$/g, '');
-}
-
 function handleFile(file) {
     if (!file) return;
     document.getElementById('file-name').textContent = file.name;
@@ -213,7 +191,6 @@ function handleFile(file) {
             const aptName = getColumnValue(row, ['단지명', '아파트명', '현장명', '단지', '아파트']) || '알 수 없음';
             const householdCount = parseInt(getColumnValue(row, ['세대수', '세대', '가구수']) || 0);
             
-            // Detection for Focus/Town
             const typeStr = (JSON.stringify(row)).toLowerCase();
             let type = 'focus';
             if (typeStr.includes('town') || typeStr.includes('타운')) type = 'town';
@@ -242,6 +219,25 @@ function handleFile(file) {
     reader.readAsArrayBuffer(file);
 }
 
+// Initial Run
+function init() {
+    loadMockData();
+    updateDistricts();
+    filterAndRender();
+}
+
+// Event Listeners
+adminToggleBtn.onclick = () => adminView.classList.add('active');
+closeAdminBtn.onclick = () => adminView.classList.remove('active');
+dropZone.onclick = () => fileInput.click();
+dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
+dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+dropZone.ondrop = (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFile(e.dataTransfer.files[0]);
+};
+fileInput.onchange = (e) => handleFile(e.target.files[0]);
 saveDbBtn.onclick = () => {
     if (pendingData.length === 0) return;
     masterDB = pendingData;
@@ -251,34 +247,10 @@ saveDbBtn.onclick = () => {
     updateDistricts();
     filterAndRender();
 };
+citySelect.onchange = () => { updateDistricts(); filterAndRender(); };
+districtSelect.onchange = filterAndRender;
+typeSelect.onchange = filterAndRender;
+refreshBtn.onclick = filterAndRender;
 
-// Update District Select options based on City
-function updateDistricts() {
-    const selectedCity = citySelect.value;
-    const districts = [...new Set(masterDB
-        .filter(item => selectedCity === 'all' || item.city === selectedCity || normalizeRegion(item.city) === normalizeRegion(selectedCity))
-        .map(item => item.district))]
-        .filter(d => d && d !== '전체')
-        .sort();
-
-    districtSelect.innerHTML = '<option value="all">전체</option>';
-    districts.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d;
-        opt.textContent = d;
-        districtSelect.appendChild(opt);
-    });
-}
-
-// Filtering Logic
-function filterAndRender() {
-    const city = citySelect.value;
-    const district = districtSelect.value;
-    const type = typeSelect.value;
-
-    filteredData = masterDB.filter(item => {
-        const matchCity = city === 'all' || item.city === city || normalizeRegion(item.city) === normalizeRegion(city);
-        const matchDistrict = district === 'all' || item.district === district;
-        const matchType = type === 'all' || item.type === type;
-        return matchCity && matchDistrict && matchType;
-    });
+let pendingData = [];
+init();
